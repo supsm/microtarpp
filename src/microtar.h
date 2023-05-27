@@ -8,8 +8,6 @@
 #ifndef MICROTAR_H
 #define MICROTAR_H
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <vector>
 
 #define MTAR_VERSION "0.1.0"
@@ -38,7 +36,7 @@ enum
 	MTAR_TFIFO = '6'
 };
 
-typedef struct mtar_header_t
+struct mtar_header_t
 {
 	unsigned mode;
 	unsigned owner;
@@ -49,43 +47,44 @@ typedef struct mtar_header_t
 	char linkname[100];
 };
 
-struct mtar_t
+class mtar_t
 {
-	int (*read)(mtar_t *tar, void *data, size_t size);
-	int (*write)(mtar_t *tar, const void *data, size_t size);
-	int (*seek)(mtar_t *tar, size_t pos);
-	int (*close)(mtar_t *tar);
-	void *stream;
-	size_t pos;
-	size_t remaining_data;
-	size_t last_header;
+public:
+	mtar_t(mtar_mem_stream_t* mem);
+	mtar_t(const char* filename, const char* mode);
+
+	~mtar_t();
+
+	int (*read)(mtar_t* tar, void* data, size_t size);
+	int (*write)(mtar_t* tar, const void* data, size_t size);
+	int (*seek)(mtar_t* tar, size_t pos);
+	int (*close)(mtar_t* tar);
+	void* stream = nullptr;
+	size_t pos = 0;
+	size_t remaining_data = 0;
+	size_t last_header = 0;
 };
 
-struct mtar_mem_stream_t
+class mtar_mem_stream_t
 {
+public:
 	std::vector<char> data;
-	size_t pos;
+	size_t pos = 0;
 };
 
-const char *mtar_strerror(int err);
+const char* mtar_strerror(int err);
 
-int mtar_init_mem_stream(mtar_mem_stream_t *mem);
+int mtar_seek(mtar_t* tar, size_t pos);
+int mtar_rewind(mtar_t* tar);
+int mtar_next(mtar_t* tar);
+int mtar_find(mtar_t* tar, const char* name, mtar_header_t* h);
+int mtar_read_header(mtar_t* tar, mtar_header_t* h);
+int mtar_read_data(mtar_t* tar, void* ptr, size_t size);
 
-int mtar_open_mem(mtar_t *tar, mtar_mem_stream_t *mem);
-int mtar_open(mtar_t *tar, const char *filename, const char *mode);
-int mtar_close(mtar_t *tar);
-
-int mtar_seek(mtar_t *tar, size_t pos);
-int mtar_rewind(mtar_t *tar);
-int mtar_next(mtar_t *tar);
-int mtar_find(mtar_t *tar, const char *name, mtar_header_t *h);
-int mtar_read_header(mtar_t *tar, mtar_header_t *h);
-int mtar_read_data(mtar_t *tar, void *ptr, size_t size);
-
-int mtar_write_header(mtar_t *tar, const mtar_header_t *h);
-int mtar_write_file_header(mtar_t *tar, const char *name, size_t size);
-int mtar_write_dir_header(mtar_t *tar, const char *name);
-int mtar_write_data(mtar_t *tar, const void *data, size_t size);
-int mtar_finalize(mtar_t *tar);
+int mtar_write_header(mtar_t* tar, const mtar_header_t* h);
+int mtar_write_file_header(mtar_t* tar, const char* name, size_t size);
+int mtar_write_dir_header(mtar_t* tar, const char* name);
+int mtar_write_data(mtar_t* tar, const void* data, size_t size);
+int mtar_finalize(mtar_t* tar);
 
 #endif
