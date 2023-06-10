@@ -20,31 +20,38 @@
  * IN THE SOFTWARE.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <string.h>
-
 #include <algorithm>
-#include <ios>
-#include <stdexcept>
-#include <string>
-#include <vector>
+#include <array>
+#include <charconv>
 
 #include "microtar.h"
 
-struct mtar_raw_header_t
+using mtar_raw_header_t = std::array<char, 512>;
+
+namespace mtar_raw_header_info
 {
-	char name[100];
-	char mode[8];
-	char owner[8];
-	char group[8];
-	char size[12];
-	char mtime[12];
-	char checksum[8];
-	char type;
-	char linkname[100];
-	char _padding[255];
+	constexpr size_t name_offset = 0;
+	constexpr size_t name_size = 100;
+	constexpr size_t mode_offset = name_offset + name_size;
+	constexpr size_t mode_size = 8;
+	constexpr size_t owner_offset = mode_offset + mode_size;
+	constexpr size_t owner_size = 8;
+	constexpr size_t group_offset = owner_offset + owner_size;
+	constexpr size_t group_size = 8;
+	constexpr size_t size_offset = group_offset + group_size;
+	constexpr size_t size_size = 12;
+	constexpr size_t mtime_offset = size_offset + size_size;
+	constexpr size_t mtime_size = 12;
+	constexpr size_t checksum_offset = mtime_offset + mtime_size;
+	constexpr size_t checksum_size = 8;
+	constexpr size_t type_offset = checksum_offset + checksum_size;
+	constexpr size_t type_size = 1;
+	constexpr size_t linkname_offset = type_offset + type_size;
+	constexpr size_t linkname_size = 100;
+	constexpr size_t _padding_offset = linkname_offset + linkname_size;
+	constexpr size_t _padding_size = 255;
+
+	static_assert(_padding_offset + _padding_size == 512);
 };
 
 static unsigned round_up(unsigned n, unsigned incr)
@@ -56,50 +63,21 @@ static unsigned checksum(const mtar_raw_header_t& rh)
 {
 	unsigned i;
 	unsigned res = 8 * 32;
-	for (unsigned char c : rh.name)
-	{
-		res += c;
-	}
-	for (unsigned char c : rh.mode)
-	{
-		res += c;
-	}
-	for (unsigned char c : rh.owner)
-	{
-		res += c;
-	}
-	for (unsigned char c : rh.group)
-	{
-		res += c;
-	}
-	for (unsigned char c : rh.size)
-	{
-		res += c;
-	}
-	for (unsigned char c : rh.mtime)
-	{
-		res += c;
-	}
-	res += rh.type;
-	for (unsigned char c : rh.linkname)
-	{
-		res += c;
-	}
-	for (unsigned char c : rh._padding)
+	for (unsigned char c : rh)
 	{
 		res += c;
 	}
 	return res;
 }
 
-static int tread(mtar_t& tar, void* data, size_t size)
+static int tread(mtar_t& tar, char* data, size_t size)
 {
 	int err = tar.read(tar, data, size);
 	tar.pos += size;
 	return err;
 }
 
-static int twrite(mtar_t& tar, const void* data, size_t size)
+static int twrite(mtar_t& tar, const char* data, size_t size)
 {
 	int err = tar.write(tar, data, size);
 	tar.pos += size;
@@ -120,65 +98,83 @@ static int write_null_bytes(mtar_t& tar, int n)
 
 static int raw_to_header(mtar_header_t& h, const mtar_raw_header_t& rh)
 {
+	using namespace mtar_raw_header_info;
 	unsigned chksum1, chksum2;
 
 	/* If the checksum starts with a null byte we assume the record is NULL */
-	if (rh.checksum[0] == '\0')
+	if (rh[checksum_offset] == '\0')
 	{
 		return MTAR_ENULLRECORD;
 	}
 
 	/* Build and compare checksum */
 	chksum1 = checksum(rh);
-	try
-	{
-		chksum2 = std::stoul(rh.checksum, nullptr, 8);
-	}
-	catch (const std::invalid_argument& e)
-	{
-		return MTAR_EBADCHKSUM;
-	}
-	if (chksum1 != chksum2)
+	std::errc ec = std::from_chars(
+		rh.data() + checksum_offset, rh.data() + checksum_offset + checksum_size,
+		chksum2, 8).ec;
+	if (ec != std::errc() || chksum1 != chksum2)
 	{
 		return MTAR_EBADCHKSUM;
 	}
 
 	/* Load raw header into header */
-	try
-	{
-		h.mode = std::stoul(rh.mode, nullptr, 8);
-		h.owner = std::stoul(rh.owner, nullptr, 8);
-		h.size = std::stoul(rh.size, nullptr, 8);
-		h.mtime = std::stoul(rh.mtime, nullptr, 8);
-	}
-	catch (const std::invalid_argument& e)
+	ec = std::from_chars(
+		rh.data() + mode_offset, rh.data() + mode_offset + mode_size,
+		h.mode, 8).ec;
+	if (ec != std::errc())
 	{
 		return MTAR_EFAILURE;
 	}
-	h.type = rh.type;
-	h.name = std::string(rh.name, 100);
-	h.linkname = std::string(rh.linkname, 100);
+	ec = std::from_chars(
+		rh.data() + owner_offset, rh.data() + owner_offset + owner_size,
+		h.owner, 8).ec;
+	if (ec != std::errc())
+	{
+		return MTAR_EFAILURE;
+	}
+	ec = std::from_chars(
+		rh.data() + size_offset, rh.data() + size_offset + size_size,
+		h.size, 8).ec;
+	if (ec != std::errc())
+	{
+		return MTAR_EFAILURE;
+	}
+	ec = std::from_chars(
+		rh.data() + mtime_offset, rh.data() + mtime_offset + mtime_size,
+		h.mtime, 8).ec;
+	if (ec != std::errc())
+	{
+		return MTAR_EFAILURE;
+	}
+	h.type = rh[type_offset];
+	h.name = std::string(rh.data() + name_offset, name_size);
+	h.linkname = std::string(rh.data() + linkname_offset, linkname_size);
 
 	return MTAR_ESUCCESS;
 }
 
 static int header_to_raw(mtar_raw_header_t& rh, const mtar_header_t& h)
 {
+	using namespace mtar_raw_header_info;
 	unsigned chksum;
 
 	/* Load header into raw header */
-	snprintf(rh.mode, 8, "%o", h.mode);
-	snprintf(rh.owner, 8, "%o", h.owner);
-	snprintf(rh.size, 8, "%o", h.size);
-	snprintf(rh.mtime, 8, "%o", h.mtime);
-	rh.type = (h.type == 0) ? MTAR_TREG : h.type;
-	strncpy(rh.name, h.name.c_str(), 100);
-	strncpy(rh.linkname, h.linkname.c_str(), 100);
+	// we need snprintf for leading zeros
+	// should be fine because there should be no errors
+	snprintf(rh.data() + mode_offset, mode_size, "%08o", h.mode);
+	snprintf(rh.data() + owner_offset, owner_size, "%08o", h.owner);
+	snprintf(rh.data() + size_offset, size_size, "%08o", h.size);
+	snprintf(rh.data() + mtime_offset, mtime_size, "%08o", h.mtime);
+	rh[type_offset] = (h.type == 0) ? MTAR_TREG : h.type;
+	// use strncpy instead of std::copy_n because size of h.name may be less than name_size
+	strncpy(rh.data() + name_offset, h.name.c_str(), name_size);
+	strncpy(rh.data() + linkname_offset, h.linkname.c_str(), linkname_size);
 
 	/* Calculate and write checksum */
 	chksum = checksum(rh);
-	snprintf(rh.checksum, 8, "%06o", chksum);
-	rh.checksum[7] = ' ';
+	// 6 digits + null character = 7
+	snprintf(rh.data() + checksum_offset, 7, "%06o", chksum);
+	rh[checksum_offset + 7] = ' ';
 
 	return MTAR_ESUCCESS;
 }
@@ -209,148 +205,34 @@ const char* mtar_strerror(int err)
 	return "unknown error";
 }
 
-static int file_write(mtar_t& tar, const void* data, size_t size)
+static int default_write(mtar_t& tar, const char* data, size_t size)
 {
-	size_t res = fwrite(data, 1, size, static_cast<FILE*>(tar.stream));
-	return (res == size) ? MTAR_ESUCCESS : MTAR_EWRITEFAIL;
-}
-
-static int file_read(mtar_t& tar, void* data, size_t size)
-{
-	size_t res = fread(data, 1, size, static_cast<FILE*>(tar.stream));
-	return (res == size) ? MTAR_ESUCCESS : MTAR_EREADFAIL;
-}
-
-static int file_seek(mtar_t& tar, size_t offset)
-{
-	size_t res = fseek(static_cast<FILE*>(tar.stream), offset, SEEK_SET);
-	return (res == 0) ? MTAR_ESUCCESS : MTAR_ESEEKFAIL;
-}
-
-static int file_close(mtar_t& tar)
-{
-	fclose(static_cast<FILE*>(tar.stream));
+	tar.stream.write(data, size);
 	return MTAR_ESUCCESS;
 }
 
-static int mem_write(mtar_t& tar, const void* data, size_t size)
+static int default_read(mtar_t& tar, char* data, size_t size)
 {
-	if (tar.stream == nullptr)
-	{
-		return MTAR_EWRITEFAIL;
-	}
-
-	mtar_mem_stream_t& mem = *static_cast<mtar_mem_stream_t*>(tar.stream);
-
-	const size_t leftover = std::max(static_cast<size_t>(0), mem.data.size() - mem.pos);
-	std::copy_n(static_cast<const char*>(data), leftover, mem.data.end() - leftover);
-
-	mem.data.insert(mem.data.end(), static_cast<const char*>(data) + leftover, static_cast<const char*>(data) + size);
-
-	mem.pos += size;
+	tar.stream.read(data, size);
 	return MTAR_ESUCCESS;
 }
 
-static int mem_read(mtar_t& tar, void* data, size_t size)
+static int default_seek(mtar_t& tar, size_t offset)
 {
-	if (tar.stream == nullptr)
-	{
-		return MTAR_EREADFAIL;
-	}
-
-	mtar_mem_stream_t& mem = *static_cast<mtar_mem_stream_t*>(tar.stream);
-
-	if (mem.pos + size >= mem.data.size())
-	{
-		return MTAR_EREADFAIL;
-	}
-
-	std::copy_n(mem.data.begin() + mem.pos, size, static_cast<char*>(data));
-	mem.pos += size;
-
+	tar.stream.seekg(offset, std::ios::beg);
 	return MTAR_ESUCCESS;
 }
 
-static int mem_seek(mtar_t& tar, size_t offset)
-{
-	if (tar.stream == nullptr)
-	{
-		return MTAR_EREADFAIL;
-	}
-
-	mtar_mem_stream_t& mem = *static_cast<mtar_mem_stream_t*>(tar.stream);
-
-	if (offset >= mem.data.size())
-	{
-		return MTAR_ESEEKFAIL;
-	}
-
-	mem.pos = offset;
-
-	return MTAR_ESUCCESS;
-}
-
-static int mem_close(mtar_t& tar)
-{
-	mtar_mem_stream_t& mem = *static_cast<mtar_mem_stream_t*>(tar.stream);
-
-	mem.data.clear();
-	mem.data.shrink_to_fit();
-	mem.pos = 0;
-
-	return MTAR_ESUCCESS;
-}
-
-mtar_t::mtar_t(const char* filename, const char* mode)
+mtar_t::mtar_t(std::iostream& ios) : stream{ios}
 {
 	int err;
 	mtar_header_t h;
 
 	/* Init tar struct and functions */
-	write = file_write;
-	read = file_read;
-	seek = file_seek;
-	close = file_close;
-
-	/* Assure mode is always binary */
-	if (strchr(mode, 'r'))
-		mode = "rb";
-	if (strchr(mode, 'w'))
-		mode = "wb";
-	if (strchr(mode, 'a'))
-		mode = "ab";
-	/* Open file */
-	stream = fopen(filename, mode);
-	if (!stream)
-	{
-		throw std::ios_base::failure(std::string("unable to open file") + filename + "for reading");
-	}
-	/* Read first header to check it is valid if mode is `r` */
-	if (*mode == 'r')
-	{
-		err = mtar_read_header(*this, h);
-		if (err != MTAR_ESUCCESS)
-		{
-			throw std::runtime_error(mtar_strerror(err));
-		}
-	}
+	write = default_write;
+	read = default_read;
+	seek = default_seek;
 }
-
-mtar_t::mtar_t(mtar_mem_stream_t& mem)
-{
-	write = mem_write;
-	read = mem_read;
-	seek = mem_seek;
-	close = mem_close;
-
-	stream = &mem;
-}
-
-mtar_t::~mtar_t()
-{
-	close(*this);
-}
-
 
 int mtar_seek(mtar_t& tar, size_t pos)
 {
@@ -416,7 +298,7 @@ int mtar_read_header(mtar_t& tar, mtar_header_t& h)
 	/* Save header position */
 	tar.last_header = tar.pos;
 	/* Read raw header */
-	err = tread(tar, &rh, sizeof(rh));
+	err = tread(tar, rh.data(), sizeof(rh));
 	if (err)
 	{
 		return err;
@@ -431,7 +313,7 @@ int mtar_read_header(mtar_t& tar, mtar_header_t& h)
 	return raw_to_header(h, rh);
 }
 
-int mtar_read_data(mtar_t& tar, void* ptr, size_t size)
+int mtar_read_data(mtar_t& tar, char* data, size_t size)
 {
 	int err;
 	/* If we have no remaining data then this is the first read, we get the size,
@@ -454,7 +336,7 @@ int mtar_read_data(mtar_t& tar, void* ptr, size_t size)
 		tar.remaining_data = h.size;
 	}
 	/* Read data */
-	err = tread(tar, ptr, size);
+	err = tread(tar, data, size);
 	if (err)
 	{
 		return err;
@@ -475,7 +357,7 @@ int mtar_write_header(mtar_t& tar, const mtar_header_t& h)
 	/* Build raw header and write */
 	header_to_raw(rh, h);
 	tar.remaining_data = h.size;
-	return twrite(tar, &rh, sizeof(rh));
+	return twrite(tar, rh.data(), sizeof(rh));
 }
 
 int mtar_write_file_header(mtar_t& tar, const char* name, size_t size)
@@ -501,7 +383,7 @@ int mtar_write_dir_header(mtar_t& tar, const char* name)
 	return mtar_write_header(tar, h);
 }
 
-int mtar_write_data(mtar_t& tar, const void* data, size_t size)
+int mtar_write_data(mtar_t& tar, const char* data, size_t size)
 {
 	int err;
 	/* Write data */

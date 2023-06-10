@@ -8,10 +8,16 @@
 #ifndef MICROTAR_H
 #define MICROTAR_H
 
+#include <cstdint>
+#include <functional>
+#include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #define MTAR_VERSION "0.1.0"
+
+using std::size_t;
 
 enum
 {
@@ -51,26 +57,15 @@ struct mtar_header_t
 class mtar_t
 {
 public:
-	mtar_t(mtar_mem_stream_t& mem);
-	mtar_t(const char* filename, const char* mode);
+	mtar_t(std::iostream& ios);
 
-	~mtar_t();
-
-	int (*read)(mtar_t& tar, void* data, size_t size);
-	int (*write)(mtar_t& tar, const void* data, size_t size);
-	int (*seek)(mtar_t& tar, size_t pos);
-	int (*close)(mtar_t& tar);
-	void* stream = nullptr;
+	std::function<int(mtar_t&, char*, size_t)> read;
+	std::function<int(mtar_t&, const char*, size_t)> write;
+	std::function<int(mtar_t&, size_t)> seek;
+	std::iostream& stream;
 	size_t pos = 0;
 	size_t remaining_data = 0;
 	size_t last_header = 0;
-};
-
-class mtar_mem_stream_t
-{
-public:
-	std::vector<char> data;
-	size_t pos = 0;
 };
 
 const char* mtar_strerror(int err);
@@ -78,13 +73,13 @@ const char* mtar_strerror(int err);
 int mtar_seek(mtar_t& tar, size_t pos);
 int mtar_rewind(mtar_t& tar);
 int mtar_next(mtar_t& tar);
-int mtar_find(mtar_t& tar, const char* name, mtar_header_t& h);
+int mtar_find(mtar_t& tar, std::string_view name, mtar_header_t& h);
 int mtar_read_header(mtar_t& tar, mtar_header_t& h);
 int mtar_read_data(mtar_t& tar, void* ptr, size_t size);
 
 int mtar_write_header(mtar_t& tar, const mtar_header_t& h);
-int mtar_write_file_header(mtar_t& tar, const char* name, size_t size);
-int mtar_write_dir_header(mtar_t& tar, const char* name);
+int mtar_write_file_header(mtar_t& tar, std::string_view name, size_t size);
+int mtar_write_dir_header(mtar_t& tar, std::string_view name);
 int mtar_write_data(mtar_t& tar, const void* data, size_t size);
 int mtar_finalize(mtar_t& tar);
 
