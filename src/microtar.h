@@ -8,9 +8,11 @@
 #ifndef MICROTAR_H
 #define MICROTAR_H
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,28 +21,28 @@
 
 using std::size_t;
 
-enum
+enum class mtar_error
 {
-	MTAR_ESUCCESS = 0,
-	MTAR_EFAILURE = -1,
-	MTAR_EOPENFAIL = -2,
-	MTAR_EREADFAIL = -3,
-	MTAR_EWRITEFAIL = -4,
-	MTAR_ESEEKFAIL = -5,
-	MTAR_EBADCHKSUM = -6,
-	MTAR_ENULLRECORD = -7,
-	MTAR_ENOTFOUND = -8
+	SUCCESS = 0,
+	FAILURE = -1,
+	OPENFAIL = -2,
+	READFAIL = -3,
+	WRITEFAIL = -4,
+	SEEKFAIL = -5,
+	BADCHKSUM = -6,
+	NULLRECORD = -7,
+	NOTFOUND = -8
 };
 
-enum
+enum class mtar_type : unsigned int
 {
-	MTAR_TREG = '0',
-	MTAR_TLNK = '1',
-	MTAR_TSYM = '2',
-	MTAR_TCHR = '3',
-	MTAR_TBLK = '4',
-	MTAR_TDIR = '5',
-	MTAR_TFIFO = '6'
+	REG = '0',
+	LNK = '1',
+	SYM = '2',
+	CHR = '3',
+	BLK = '4',
+	DIR = '5',
+	FIFO = '6'
 };
 
 struct mtar_header_t
@@ -49,38 +51,61 @@ struct mtar_header_t
 	unsigned owner;
 	unsigned size;
 	unsigned mtime;
-	unsigned type;
+	mtar_type type = mtar_type::REG;
 	std::string name;
 	std::string linkname;
 };
 
+using mtar_raw_header_t = std::array<char, 512>;
+
 class mtar_t
 {
+private:
+	std::function<mtar_error(mtar_t&, char*, size_t)> read_func;
+	std::function<mtar_error(mtar_t&, const char*, size_t)> write_func;
+	std::function<mtar_error(mtar_t&, size_t)> seek_func;
+	std::function<void(mtar_t&)> close_func;
+
+	static constexpr size_t NULL_BLOCKSIZE = 4096;
+	static constexpr char null_block[NULL_BLOCKSIZE]{};
+
+	static unsigned int round_up(unsigned int n, unsigned int incr);
+	static unsigned int checksum(const mtar_raw_header_t& rh);
+	mtar_error tread(char* data, size_t size);
+	mtar_error twrite(const char* data, size_t size);
+	mtar_error write_null_bytes(size_t n);
+	static mtar_error raw_to_header(mtar_header_t& h, const mtar_raw_header_t& rh);
+	static mtar_error header_to_raw(mtar_raw_header_t& rh, const mtar_header_t& h);
+
+
 public:
 	mtar_t(std::iostream& ios);
+	template<typename ReadFunc, typename WriteFunc, typename SeekFunc, typename CloseFunc>
+	mtar_t(ReadFunc read_func_, WriteFunc write_func_, SeekFunc seek_func_, CloseFunc close_func_) :
+		read_func(read_func_), write_func(write_func_), seek_func(seek_func_), close_func(close_func_) {}
+	~mtar_t();
 
-	std::function<int(mtar_t&, char*, size_t)> read;
-	std::function<int(mtar_t&, const char*, size_t)> write;
-	std::function<int(mtar_t&, size_t)> seek;
-	std::iostream& stream;
+	std::optional<std::reference_wrapper<std::iostream>> stream;
 	size_t pos = 0;
 	size_t remaining_data = 0;
 	size_t last_header = 0;
+
+	static std::string_view strerror(mtar_error err);
+
+	mtar_error seek(size_t pos);
+	mtar_error rewind();
+	mtar_error next();
+	mtar_error find(std::string_view name, mtar_header_t& h);
+	mtar_error read_header(mtar_header_t& h);
+	mtar_error read_data(char* ptr, size_t size);
+
+	mtar_error write_header(const mtar_header_t& h);
+	mtar_error write_file_header(std::string_view name, size_t size);
+	mtar_error write_dir_header(std::string_view name);
+	mtar_error write_data(const char* data, size_t size);
+	mtar_error finalize();
 };
 
-const char* mtar_strerror(int err);
-
-int mtar_seek(mtar_t& tar, size_t pos);
-int mtar_rewind(mtar_t& tar);
-int mtar_next(mtar_t& tar);
-int mtar_find(mtar_t& tar, std::string_view name, mtar_header_t& h);
-int mtar_read_header(mtar_t& tar, mtar_header_t& h);
-int mtar_read_data(mtar_t& tar, void* ptr, size_t size);
-
-int mtar_write_header(mtar_t& tar, const mtar_header_t& h);
-int mtar_write_file_header(mtar_t& tar, std::string_view name, size_t size);
-int mtar_write_dir_header(mtar_t& tar, std::string_view name);
-int mtar_write_data(mtar_t& tar, const void* data, size_t size);
-int mtar_finalize(mtar_t& tar);
+std::string_view mtar_strerror(mtar_error err);
 
 #endif
