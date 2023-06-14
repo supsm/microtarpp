@@ -205,28 +205,56 @@ std::string_view mtar_t::strerror(mtar_error err)
 	return "unknown error";
 }
 
+mtar_t::mtar_t(std::istream& is) : stream{std::ref(is)}
+{
+	/* Init tar struct and functions */
+	read_func = [](mtar_t& tar, char* data, size_t size)
+	{
+		std::get<1>(tar.stream).get().read(data, size);
+		return mtar_error::SUCCESS;
+	};
+	seek_func = [](mtar_t& tar, size_t offset)
+	{
+		std::get<1>(tar.stream).get().seekg(offset, std::ios::beg);
+		return mtar_error::SUCCESS;
+	};
+}
+
+mtar_t::mtar_t(std::ostream& os) : stream{std::ref(os)}
+{
+	/* Init tar struct and functions */
+	write_func = [](mtar_t& tar, const char* data, size_t size)
+	{
+		std::get<2>(tar.stream).get().write(data, size);
+		return mtar_error::SUCCESS;
+	};
+	close_func = [](mtar_t& tar) noexcept
+	{
+		std::get<2>(tar.stream).get().flush();
+	};
+}
+
 mtar_t::mtar_t(std::iostream& ios) : stream{std::ref(ios)}
 {
 	/* Init tar struct and functions */
 	write_func = [](mtar_t& tar, const char* data, size_t size)
 	{
-		tar.stream.value().get().write(data, size);
+		std::get<3>(tar.stream).get().write(data, size);
 		return mtar_error::SUCCESS;
 	};
 	read_func = [](mtar_t& tar, char* data, size_t size)
 	{
-		tar.stream.value().get().read(data, size);
+		std::get<3>(tar.stream).get().read(data, size);
 		return mtar_error::SUCCESS;
 	};
 	seek_func = [](mtar_t& tar, size_t offset)
 	{
-		tar.stream.value().get().seekg(offset, std::ios::beg);
+		std::get<3>(tar.stream).get().seekg(offset, std::ios::beg);
 		return mtar_error::SUCCESS;
 	};
-	// TODO: do we flush here? what if stream is read-only?
-	close_func = [](mtar_t& tar)noexcept
+	close_func = [](mtar_t& tar) noexcept
 	{
-		tar.stream.value().get().flush();
+		std::get<3>(tar.stream).get().flush();
 	};
 }
 

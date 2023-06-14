@@ -12,9 +12,9 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
-#include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #define MTAR_VERSION "0.1.0"
@@ -64,7 +64,7 @@ private:
 	std::function<mtar_error(mtar_t&, char*, size_t)> read_func;
 	std::function<mtar_error(mtar_t&, const char*, size_t)> write_func;
 	std::function<mtar_error(mtar_t&, size_t)> seek_func;
-	std::function<void(mtar_t&)> close_func;
+	std::function<void(mtar_t&)> close_func = [](mtar_t& tar) noexcept {};
 
 	static constexpr size_t NULL_BLOCKSIZE = 4096;
 	static constexpr char null_block[NULL_BLOCKSIZE]{};
@@ -79,19 +79,25 @@ private:
 
 
 public:
+	mtar_t(std::istream& is);
+	mtar_t(std::ostream& os);
 	mtar_t(std::iostream& ios);
 	template<typename ReadFunc, typename WriteFunc, typename SeekFunc, typename CloseFunc>
 	mtar_t(ReadFunc read_func_, WriteFunc write_func_, SeekFunc seek_func_, CloseFunc close_func_) :
 		read_func(read_func_), write_func(write_func_), seek_func(seek_func_), close_func(close_func_) {}
 	~mtar_t();
 
-	std::optional<std::reference_wrapper<std::iostream>> stream;
+	std::variant<std::monostate,
+		std::reference_wrapper<std::istream>,
+		std::reference_wrapper<std::ostream>,
+		std::reference_wrapper<std::iostream>> stream;
 	size_t pos = 0;
 	size_t remaining_data = 0;
 	size_t last_header = 0;
 
 	static std::string_view strerror(mtar_error err);
 
+	// seek READ, does not affect write
 	mtar_error seek(size_t pos);
 	mtar_error rewind();
 	mtar_error next();
