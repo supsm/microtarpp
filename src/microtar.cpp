@@ -71,14 +71,14 @@ unsigned int mtar_t::checksum(const mtar_raw_header_t& rh)
 mtar_error mtar_t::tread(char* data, size_t size)
 {
 	mtar_error err = read_func(*this, data, size);
-	pos += size;
+	read_pos += size;
 	return err;
 }
 
 mtar_error mtar_t::twrite(const char* data, size_t size)
 {
 	mtar_error err = write_func(*this, data, size);
-	pos += size;
+	write_pos += size;
 	return err;
 }
 
@@ -263,10 +263,10 @@ mtar_t::~mtar_t()
 	close_func(*this);
 }
 
-mtar_error mtar_t::seek(size_t pos_)
+mtar_error mtar_t::seek(size_t pos)
 {
-	pos = pos_;
-	return seek_func(*this, pos_);
+	read_pos = pos;
+	return seek_func(*this, pos);
 }
 
 mtar_error mtar_t::rewind()
@@ -287,7 +287,7 @@ mtar_error mtar_t::next()
 	}
 	/* Seek to next record */
 	int n = round_up(h.size, 512) + mtar_raw_header_info::header_size;
-	return seek(pos + n);
+	return seek(read_pos + n);
 }
 
 mtar_error mtar_t::find(std::string_view name, mtar_header_t& h)
@@ -320,7 +320,7 @@ mtar_error mtar_t::find(std::string_view name, mtar_header_t& h)
 mtar_error mtar_t::read_header(mtar_header_t& h)
 {
 	/* Save header position */
-	last_header = pos;
+	last_header = read_pos;
 	/* Read raw header */
 	mtar_raw_header_t rh;
 	mtar_error err = tread(rh.data(), mtar_raw_header_info::header_size);
@@ -352,7 +352,7 @@ mtar_error mtar_t::read_data(char* data, size_t size)
 			return err;
 		}
 		/* Seek past header and init remaining data */
-		err = seek(pos + mtar_raw_header_info::header_size);
+		err = seek(read_pos + mtar_raw_header_info::header_size);
 		if (err != mtar_error::SUCCESS)
 		{
 			return err;
@@ -419,7 +419,7 @@ mtar_error mtar_t::write_data(const char* data, size_t size)
 	/* Write padding if we've written all the data for this file */
 	if (remaining_data == 0)
 	{
-		return write_null_bytes(round_up(pos, 512) - pos);
+		return write_null_bytes(round_up(write_pos, 512) - write_pos);
 	}
 	return mtar_error::SUCCESS;
 }

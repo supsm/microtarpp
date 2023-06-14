@@ -91,7 +91,8 @@ public:
 		std::reference_wrapper<std::istream>,
 		std::reference_wrapper<std::ostream>,
 		std::reference_wrapper<std::iostream>> stream;
-	size_t pos = 0;
+	size_t read_pos = 0;
+	size_t write_pos = 0;
 	size_t remaining_data = 0;
 	size_t last_header = 0;
 
