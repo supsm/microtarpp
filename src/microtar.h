@@ -47,10 +47,10 @@ enum class mtar_type : unsigned int
 
 struct mtar_header_t
 {
-	unsigned mode;
-	unsigned owner;
-	unsigned size;
-	unsigned mtime;
+	unsigned mode = 664;
+	unsigned owner = 0;
+	unsigned size = 0;
+	unsigned mtime = 0;
 	mtar_type type = mtar_type::REG;
 	std::string name;
 	std::string linkname;

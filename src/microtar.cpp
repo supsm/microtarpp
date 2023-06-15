@@ -47,10 +47,10 @@ namespace mtar_raw_header_info
 	constexpr size_t linkname_size = 100;
 	constexpr size_t _padding_offset = linkname_offset + linkname_size;
 	constexpr size_t _padding_size = 255;
-
-	constexpr size_t header_size = _padding_offset + _padding_size;
-	static_assert(header_size == 512);
 };
+
+constexpr size_t mtar_raw_header_size = mtar_raw_header_info::_padding_offset + mtar_raw_header_info::_padding_size;
+static_assert(mtar_raw_header_size == 512);
 
 unsigned int mtar_t::round_up(unsigned int n, unsigned int incr)
 {
@@ -59,11 +59,18 @@ unsigned int mtar_t::round_up(unsigned int n, unsigned int incr)
 
 unsigned int mtar_t::checksum(const mtar_raw_header_t& rh)
 {
+	using namespace mtar_raw_header_info;
 	unsigned i;
 	unsigned res = 8 * 32;
-	for (unsigned char c : rh)
+	// skip checksum data while computing checksum
+	for (size_t i = 0; i < checksum_offset; i++)
 	{
-		res += c;
+		res += static_cast<unsigned char>(rh[i]);
+	}
+	// include "padding" data in checksum otherwise UStar archives cannot be read
+	for (size_t i = checksum_offset + checksum_size; i < mtar_raw_header_size; i++)
+	{
+		res += static_cast<unsigned char>(rh[i]);
 	}
 	return res;
 }
@@ -148,7 +155,7 @@ mtar_error mtar_t::raw_to_header(mtar_header_t& h, const mtar_raw_header_t& rh)
 		return mtar_error::FAILURE;
 	}
 	h.type = static_cast<mtar_type>(rh[type_offset]);
-	h.name = std::string(rh.data() + name_offset, name_size);
+	h.name = std::string(rh.data() + name_offset);
 	h.linkname = std::string(rh.data() + linkname_offset, linkname_size);
 
 	return mtar_error::SUCCESS;
@@ -158,21 +165,37 @@ mtar_error mtar_t::header_to_raw(mtar_raw_header_t& rh, const mtar_header_t& h)
 {
 	using namespace mtar_raw_header_info;
 
+	rh = {};
+
 	/* Load header into raw header */
-	// we need snprintf for leading zeros
-	// should be fine because there should be no errors
-	snprintf(rh.data() + mode_offset, mode_size, "%08o", h.mode);
-	snprintf(rh.data() + owner_offset, owner_size, "%08o", h.owner);
-	snprintf(rh.data() + size_offset, size_size, "%08o", h.size);
-	snprintf(rh.data() + mtime_offset, mtime_size, "%08o", h.mtime);
+	// there should be no errors so we don't need to handle any
+	std::to_chars(rh.data() + mode_offset, rh.data() + mode_offset + mode_size, h.mode);
+	std::to_chars(rh.data() + owner_offset, rh.data() + owner_offset + owner_size, h.owner);
+	std::to_chars(rh.data() + size_offset, rh.data() + size_offset + size_size, h.size);
+	std::to_chars(rh.data() + mtime_offset, rh.data() + mtime_offset + mtime_size, h.mtime);
 	rh[type_offset] = static_cast<unsigned int>(h.type);
-	// use strncpy instead of std::copy_n because size of h.name may be less than name_size
-	strncpy(rh.data() + name_offset, h.name.c_str(), name_size);
-	strncpy(rh.data() + linkname_offset, h.linkname.c_str(), linkname_size);
+	if (h.name.size() >= 100)
+	{
+		// leave 1 for null
+		std::copy_n(h.name.begin(), 99, rh.data() + name_offset);
+	}
+	else
+	{
+		std::copy(h.name.begin(), h.name.end(), rh.data() + name_offset);
+	}
+	if (h.linkname.size() >= 100)
+	{
+		std::copy_n(h.linkname.begin(), 99, rh.data() + linkname_offset);
+	}
+	else
+	{
+		std::copy(h.linkname.begin(), h.linkname.end(), rh.data() + linkname_offset);
+	}
 
 	/* Calculate and write checksum */
 	unsigned int chksum = checksum(rh);
 	// 6 digits + null character = 7
+	// need snprintf here for leading zeros
 	snprintf(rh.data() + checksum_offset, 7, "%06o", chksum);
 	rh[checksum_offset + 7] = ' ';
 
@@ -286,7 +309,7 @@ mtar_error mtar_t::next()
 		return err;
 	}
 	/* Seek to next record */
-	int n = round_up(h.size, 512) + mtar_raw_header_info::header_size;
+	int n = round_up(h.size, mtar_raw_header_size) + mtar_raw_header_size;
 	return seek(read_pos + n);
 }
 
@@ -323,7 +346,7 @@ mtar_error mtar_t::read_header(mtar_header_t& h)
 	last_header = read_pos;
 	/* Read raw header */
 	mtar_raw_header_t rh;
-	mtar_error err = tread(rh.data(), mtar_raw_header_info::header_size);
+	mtar_error err = tread(rh.data(), mtar_raw_header_size);
 	if (err != mtar_error::SUCCESS)
 	{
 		return err;
@@ -352,7 +375,7 @@ mtar_error mtar_t::read_data(char* data, size_t size)
 			return err;
 		}
 		/* Seek past header and init remaining data */
-		err = seek(read_pos + mtar_raw_header_info::header_size);
+		err = seek(read_pos + mtar_raw_header_size);
 		if (err != mtar_error::SUCCESS)
 		{
 			return err;
@@ -381,7 +404,7 @@ mtar_error mtar_t::write_header(const mtar_header_t& h)
 	mtar_raw_header_t rh;
 	header_to_raw(rh, h);
 	remaining_data = h.size;
-	return twrite(rh.data(), mtar_raw_header_info::header_size);
+	return twrite(rh.data(), mtar_raw_header_size);
 }
 
 mtar_error mtar_t::write_file_header(std::string_view name, size_t size)
@@ -419,7 +442,7 @@ mtar_error mtar_t::write_data(const char* data, size_t size)
 	/* Write padding if we've written all the data for this file */
 	if (remaining_data == 0)
 	{
-		return write_null_bytes(round_up(write_pos, 512) - write_pos);
+		return write_null_bytes(round_up(write_pos, mtar_raw_header_size) - write_pos);
 	}
 	return mtar_error::SUCCESS;
 }
@@ -427,5 +450,5 @@ mtar_error mtar_t::write_data(const char* data, size_t size)
 mtar_error mtar_t::finalize()
 {
 	/* Write two NULL records */
-	return write_null_bytes(mtar_raw_header_info::header_size * 2);
+	return write_null_bytes(mtar_raw_header_size * 2);
 }
