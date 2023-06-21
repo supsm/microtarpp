@@ -1,130 +1,87 @@
 # microtar
-A lightweight tar library written in ANSI C
+A lightweight tar library written in C++17
 
 
 ## Basic Usage
-The library consists of `microtar.c` and `microtar.h`. These two files can be
+The library consists of `microtar.cpp` and `microtar.h`. These two files can be
 dropped into an existing project and compiled along with it.
 
 
 #### Reading
-```c
-mtar_t tar;
+```c++
+// open archive for reading
+std::ifstream fin("test.tar", std::ios::binary);
+mtar_t tar(fin);
+
+// print all file names and sizes
 mtar_header_t h;
-char *p;
-
-/* Open archive for reading */
-mtar_open(&tar, "test.tar", "r");
-
-/* Print all file names and sizes */
-while ( (mtar_read_header(&tar, &h)) != MTAR_ENULLRECORD ) {
-  printf("%s (%d bytes)\n", h.name, h.size);
-  mtar_next(&tar);
+while (tar.read_header(h) == mtar_error::SUCCESS)
+{
+  std::cout << h.name << " (" << h.size << " bytes)" << '\n';
+  tar.next();
 }
 
-/* Load and print contents of file "test.txt" */
-mtar_find(&tar, "test.txt", &h);
-p = calloc(1, h.size + 1);
-mtar_read_data(&tar, p, h.size);
-printf("%s", p);
-free(p);
-
-/* Close archive */
-mtar_close(&tar);
+// load and print contents of file `text.txt`
+tar.find("text.txt", h);
+std::vector<char> v(h.size);
+tar.read_data(v.data(), h.size);
+// print vector
+std::copy(v.begin(), v.end(), std::ostream_iterator<char>(std::cout));
+std::cout << std::endl;
 ```
 
 #### Writing
-```c
-mtar_t tar;
-const char *str1 = "Hello world";
-const char *str2 = "Goodbye world";
+```c++
+// open archive for writing
+std::ofstream fout("test.tar", std::ios::binary);
+mtar_t tar(fout);
 
-/* Open archive for writing */
-mtar_open(&tar, "test.tar", "w");
+// write strings to files `test1.txt` and `test2.txt`
+std::string str1 = "Hello World", str2 = "Goodbye world";
+tar.write_file_header("test1.txt", str1.size());
+tar.write_data(str1.data(), str1.size());
+tar.write_file_header("test2.txt", str2.size());
+tar.write_data(str2.data(), str2.size());
 
-/* Write strings to files `test1.txt` and `test2.txt` */
-mtar_write_file_header(&tar, "test1.txt", strlen(str1));
-mtar_write_data(&tar, str1, strlen(str1));
-mtar_write_file_header(&tar, "test2.txt", strlen(str2));
-mtar_write_data(&tar, str2, strlen(str2));
-
-/* Finalize -- this needs to be the last thing done before closing */
-mtar_finalize(&tar);
-
-/* Close archive */
-mtar_close(&tar);
-```
-
-
-#### Writing to memory
-```c
-mtar_t tar;
-mtar_mem_stream_t mem;
-char buffer[4096];
-const char *str1 = "Hello world";
-const char *str2 = "Goodbye world";
-
-/* Initialize memory stream object */
-mtar_init_mem_stream(&mem, buffer, sizeof(buffer));
-/* Open archive for writing */
-mtar_open_mem(&tar, &mem);
-
-/* Write strings to files `test1.txt` and `test2.txt` */
-mtar_write_file_header(&tar, "test1.txt", strlen(str1));
-mtar_write_data(&tar, str1, strlen(str1));
-mtar_write_file_header(&tar, "test2.txt", strlen(str2));
-mtar_write_data(&tar, str2, strlen(str2));
-
-/* Finalize -- this needs to be the last thing done before closing */
-mtar_finalize(&tar);
-
-/* Close archive */
-mtar_close(&tar);
-
-/* Now you can process the buffer */
-size_t data_len = mem.pos;
-FILE *fp = fopen("output.tar", "wb");
-fwrite(buffer, data_len, 1, fp);
-fclose(fp);
+// finalize, needs to be the last thing done
+tar.finalize();
 ```
 
 
 ## Error handling
-All functions which return an `int` will return `MTAR_ESUCCESS` if the operation
-is successful. If an error occurs an error value less-than-zero will be
-returned; this value can be passed to the function `mtar_strerror()` to get its
-corresponding error string.
+All functions which return an `mtar_error` will return `mtar_error::SUCCESS`
+if the operation is successful. If an error occurs an error value less-than-zero
+will be returned; this value can be passed to the static function
+`mtar_t::strerror()` to get its corresponding error string.
 
 
-## Wrapping a stream
-If you want to read or write from something other than a file, the `mtar_t`
-struct can be manually initialized with your own callback functions and a
-`stream` pointer.
+## Custom I/O
+If you want to read or write from something other than a stream, the `mtar_t`
+class can be constructed from own callback functions. `std::function` can be
+default constructed (e.g. using `{}`) if certain functions such as writing
+are not supported.
 
-All callback functions are passed a pointer to the `mtar_t` struct as their
-first argument. They should return `MTAR_ESUCCESS` if the operation succeeds
-without an error, or an integer below zero if an error occurs.
-
-After the `stream` field has been set, all required callbacks have been set and
-all unused fields have been zeroset the `mtar_t` struct can be safely used with
-the microtar functions. `mtar_open` *should not* be called if the `mtar_t`
-struct was initialized manually.
+All callback functions are passed a reference to the `mtar_t` object as their
+first argument. They should return `mtar_error::SUCCESS` if the operation
+succeeds without an error, or an integer below zero if an error occurs (see
+`mtar_error` enum values).
 
 #### Reading
-The following callbacks should be set for reading an archive from a stream:
+The following constructor arguments should be provided for reading an archive
+from a stream:
 
-Name    | Arguments                                | Description
---------|------------------------------------------|---------------------------
-`read`  | `mtar_t *tar, void *data, unsigned size` | Read data from the stream
-`seek`  | `mtar_t *tar, unsigned pos`              | Set the position indicator
-`close` | `mtar_t *tar`                            | Close the stream
+Name         | Function Arguments                       | Description
+-------------|------------------------------------------|---------------------------
+`read_func`  | `mtar_t& tar, char* data, size_t size`   | Read data from the stream
+`seek_func`  | `mtar_t& tar, size_t pos`                | Set the position indicator
+`close_func` | `mtar_t& tar`                            | Close the stream
 
 #### Writing
-The following callbacks should be set for writing an archive to a stream:
+The following argument should be provided for writing an archive to a stream:
 
-Name    | Arguments                                      | Description
---------|------------------------------------------------|---------------------
-`write` | `mtar_t *tar, const void *data, unsigned size` | Write data to the stream
+Name         | Function Arguments                             | Description
+-------------|------------------------------------------------|---------------------
+`write_func` | `mtar_t& tar, const char* data, size_t size`   | Write data to the stream
 
 
 ## License

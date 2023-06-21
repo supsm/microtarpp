@@ -169,10 +169,10 @@ mtar_error mtar_t::header_to_raw(mtar_raw_header_t& rh, const mtar_header_t& h)
 
 	/* Load header into raw header */
 	// there should be no errors so we don't need to handle any
-	std::to_chars(rh.data() + mode_offset, rh.data() + mode_offset + mode_size, h.mode);
-	std::to_chars(rh.data() + owner_offset, rh.data() + owner_offset + owner_size, h.owner);
-	std::to_chars(rh.data() + size_offset, rh.data() + size_offset + size_size, h.size);
-	std::to_chars(rh.data() + mtime_offset, rh.data() + mtime_offset + mtime_size, h.mtime);
+	std::to_chars(rh.data() + mode_offset, rh.data() + mode_offset + mode_size, h.mode, 8);
+	std::to_chars(rh.data() + owner_offset, rh.data() + owner_offset + owner_size, h.owner, 8);
+	std::to_chars(rh.data() + size_offset, rh.data() + size_offset + size_size, h.size, 8);
+	std::to_chars(rh.data() + mtime_offset, rh.data() + mtime_offset + mtime_size, h.mtime, 8);
 	rh[type_offset] = static_cast<unsigned int>(h.type);
 	if (h.name.size() >= 100)
 	{
@@ -194,9 +194,18 @@ mtar_error mtar_t::header_to_raw(mtar_raw_header_t& rh, const mtar_header_t& h)
 
 	/* Calculate and write checksum */
 	unsigned int chksum = checksum(rh);
-	// 6 digits + null character = 7
-	// need snprintf here for leading zeros
-	snprintf(rh.data() + checksum_offset, 7, "%06o", chksum);
+	// use aux array for leading zeros
+	// c-array is more convenient here
+	char aux[6] = { '0', '0', '0', '0', '0', '0' };
+	auto res = std::to_chars(aux, aux + 7, chksum, 8);
+	if (res.ptr == aux + 7) // all 6 elements are used, ptr is 1 past end
+	{
+		std::copy(aux, aux + 6, rh.data() + checksum_offset);
+	}
+	else
+	{
+		std::rotate_copy(aux, res.ptr, aux + 6, rh.data() + checksum_offset);
+	}
 	rh[checksum_offset + 7] = ' ';
 
 	return mtar_error::SUCCESS;

@@ -82,8 +82,10 @@ public:
 	mtar_t(std::istream& is);
 	mtar_t(std::ostream& os);
 	mtar_t(std::iostream& ios);
-	template<typename ReadFunc, typename WriteFunc, typename SeekFunc, typename CloseFunc>
-	mtar_t(ReadFunc read_func_, WriteFunc write_func_, SeekFunc seek_func_, CloseFunc close_func_) :
+	mtar_t(std::function<mtar_error(mtar_t&, char*, size_t)> read_func_,
+		std::function<mtar_error(mtar_t&, const char*, size_t)> write_func_,
+		std::function<mtar_error(mtar_t&, size_t)> seek_func_,
+		std::function<void(mtar_t&)> close_func_) :
 		read_func(read_func_), write_func(write_func_), seek_func(seek_func_), close_func(close_func_) {}
 	~mtar_t();
 
