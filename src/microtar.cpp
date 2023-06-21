@@ -299,12 +299,27 @@ mtar_t::~mtar_t()
 mtar_error mtar_t::seek(size_t pos)
 {
 	read_pos = pos;
+	remaining_data = 0; // clear remaining data to prevent read_header, seek, read_data (error)
 	return seek_func(*this, pos);
+}
+
+mtar_error mtar_t::seek_data(ptrdiff_t off)
+{
+	// if remaining_data is 0 (past end by unknown amount or not in data record at all)
+	// or off is more than remaining_data (seeks past data)
+	// or read_pos + off is less than zero
+	// or read_pos + off is less than last_header + mtar_record_size (seeks before data)
+	if (remaining_data == 0 || remaining_data < off || read_pos < -off || read_pos + off < last_header + mtar_record_size)
+	{
+		return mtar_error::SEEKFAIL;
+	}
+	read_pos += off;
+	remaining_data -= off;
+	return seek_func(*this, read_pos);
 }
 
 mtar_error mtar_t::rewind()
 {
-	remaining_data = 0;
 	last_header = 0;
 	return seek_func(*this, 0);
 }
@@ -338,14 +353,14 @@ mtar_error mtar_t::find(std::string_view name, mtar_header_t& h)
 	}
 	/* Iterate all files until we hit an error or find the file */
 	mtar_header_t header;
-	while ((err = peek_header(header)) == mtar_error::SUCCESS)
+	while ((err = read_header(header)) == mtar_error::SUCCESS)
 	{
 		if (header.name == name)
 		{
 			h = header;
 			return mtar_error::SUCCESS;
 		}
-		next();
+		skip_data(header.size);
 	}
 	/* Return error */
 	if (err == mtar_error::NULLRECORD)
@@ -388,13 +403,19 @@ mtar_error mtar_t::read_header(mtar_header_t& h)
 		return err;
 	}
 	/* Load raw header into header struct and return */
-	return raw_to_header(h, rh);
+	err = raw_to_header(h, rh);
+	if (err != mtar_error::SUCCESS)
+	{
+		return err;
+	}
+	remaining_data = h.size;
+	return mtar_error::SUCCESS;
 }
 
 mtar_error mtar_t::read_data(char* data, size_t size)
 {
-	/* If we have no remaining data then this is the first read, we get the size,
-	 * set the remaining data and seek to the beginning of the data */
+	/* If we have no remaining data then this is the first read and header is valid
+	 * we consume the header, which sets the remaining data and puts us in the correct place */
 	if (remaining_data == 0)
 	{
 		/* Read header */
@@ -404,7 +425,6 @@ mtar_error mtar_t::read_data(char* data, size_t size)
 		{
 			return err;
 		}
-		remaining_data = h.size;
 	}
 	/* Read data */
 	mtar_error err = tread(data, size);

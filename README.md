@@ -6,10 +6,15 @@ The main difference between microtar++ and the original microtar is of course
 that microtar++ uses C++ streams and classes instead of C `FILE*` and struct.
 However, there are also some API changes:
 - `mtar_read_header` is replaced by `mtar_t::peek_header`, `mtar_t::read_header`
-  does not seek back to before the header, "consuming" the header.
+  does not seek back to before the header, "consuming" the header. Since this now
+  places the position at the data, `remaining_data` is also set.
 - `mtar_t::skip_data` is provided to skip over data only (no header). This
   was not necessary in the original microtar because there would not have been
   any scenario where only the header was consumed
+- `mtar_t::seek` clears `remaining_data`
+- `mtar_t::seek_data` can be used to seek within the data section of an archive.
+  It will automatically update `remaining_data` and fails if attempting to seek
+  outside of the data range.
 
 ## Basic Usage
 The library consists of `microtar.cpp` and `microtar.h`. These two files can be

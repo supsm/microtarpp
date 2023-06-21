@@ -20,6 +20,7 @@
 #define MTAR_VERSION "0.1.0"
 
 using std::size_t;
+using std::ptrdiff_t;
 
 enum class mtar_error
 {
@@ -103,6 +104,8 @@ public:
 
 	// seek READ, does not affect write
 	mtar_error seek(size_t pos);
+	// seek read within a data section only, using OFFSET (unlike seek)
+	mtar_error seek_data(ptrdiff_t off);
 	// rewind reading to beginning of file
 	mtar_error rewind();
 	// skip to next record (file + data)
