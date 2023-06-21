@@ -1,6 +1,15 @@
-# microtar
+# microtar++
 A lightweight tar library written in C++17
 
+## Differences
+The main difference between microtar++ and the original microtar is of course
+that microtar++ uses C++ streams and classes instead of C `FILE*` and struct.
+However, there are also some API changes:
+- `mtar_read_header` is replaced by `mtar_t::peek_header`, `mtar_t::read_header`
+  does not seek back to before the header, "consuming" the header.
+- `mtar_t::skip_data` is provided to skip over data only (no header). This
+  was not necessary in the original microtar because there would not have been
+  any scenario where only the header was consumed
 
 ## Basic Usage
 The library consists of `microtar.cpp` and `microtar.h`. These two files can be

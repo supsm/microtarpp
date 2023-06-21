@@ -36,24 +36,24 @@ enum class mtar_error
 
 enum class mtar_type : unsigned int
 {
-	REG = '0',
-	LNK = '1',
-	SYM = '2',
-	CHR = '3',
-	BLK = '4',
-	DIR = '5',
-	FIFO = '6'
+	REG = '0', // normal file
+	LNK = '1', // hard link
+	SYM = '2', // symlink
+	CHR = '3', // character device
+	BLK = '4', // block device
+	DIR = '5', // directory
+	FIFO = '6' // named pipe
 };
 
 struct mtar_header_t
 {
-	unsigned mode = 664;
-	unsigned owner = 0;
-	unsigned size = 0;
-	unsigned mtime = 0;
-	mtar_type type = mtar_type::REG;
-	std::string name;
-	std::string linkname;
+	unsigned mode = 0664; // posix mode (read/write/execute)
+	unsigned owner = 0; // owner of file
+	unsigned size = 0; // size of file (in bytes)
+	unsigned mtime = 0; // unix timestamp when file was last modified
+	mtar_type type = mtar_type::REG; // type of file
+	std::string name; // filename
+	std::string linkname; // name of link destination
 };
 
 using mtar_raw_header_t = std::array<char, 512>;
@@ -69,7 +69,7 @@ private:
 	static constexpr size_t NULL_BLOCKSIZE = 4096;
 	static constexpr char null_block[NULL_BLOCKSIZE]{};
 
-	static unsigned int round_up(unsigned int n, unsigned int incr);
+	static size_t round_up(size_t n, size_t incr);
 	static unsigned int checksum(const mtar_raw_header_t& rh);
 	mtar_error tread(char* data, size_t size);
 	mtar_error twrite(const char* data, size_t size);
@@ -98,23 +98,36 @@ public:
 	size_t remaining_data = 0;
 	size_t last_header = 0;
 
+	// get error message
 	static std::string_view strerror(mtar_error err);
 
 	// seek READ, does not affect write
 	mtar_error seek(size_t pos);
+	// rewind reading to beginning of file
 	mtar_error rewind();
+	// skip to next record (file + data)
 	mtar_error next();
+	// skip over data section, if header is already read
+	mtar_error skip_data(size_t data_size);
+	// find entry in archive
 	mtar_error find(std::string_view name, mtar_header_t& h);
+	// read header and seek back to original position
+	mtar_error peek_header(mtar_header_t& h);
+	// read and consume header
 	mtar_error read_header(mtar_header_t& h);
+	// read and consume data
 	mtar_error read_data(char* ptr, size_t size);
 
+	// write custom header data
 	mtar_error write_header(const mtar_header_t& h);
+	// write header data for file entry
 	mtar_error write_file_header(std::string_view name, size_t size);
+	// write header data for directory entry
 	mtar_error write_dir_header(std::string_view name);
+	// write file data (not header)
 	mtar_error write_data(const char* data, size_t size);
+	// mark end of archive
 	mtar_error finalize();
 };
-
-std::string_view mtar_strerror(mtar_error err);
 
 #endif

@@ -50,9 +50,10 @@ namespace mtar_raw_header_info
 };
 
 constexpr size_t mtar_raw_header_size = mtar_raw_header_info::_padding_offset + mtar_raw_header_info::_padding_size;
-static_assert(mtar_raw_header_size == 512);
+constexpr size_t mtar_record_size = 512;
+static_assert(mtar_raw_header_size == mtar_record_size);
 
-unsigned int mtar_t::round_up(unsigned int n, unsigned int incr)
+size_t mtar_t::round_up(size_t n, size_t incr)
 {
 	return n + (incr - n % incr) % incr;
 }
@@ -318,8 +319,13 @@ mtar_error mtar_t::next()
 		return err;
 	}
 	/* Seek to next record */
-	int n = round_up(h.size, mtar_raw_header_size) + mtar_raw_header_size;
+	size_t n = round_up(h.size, mtar_record_size);
 	return seek(read_pos + n);
+}
+
+mtar_error mtar_t::skip_data(size_t data_size)
+{
+	return seek(read_pos + round_up(data_size, mtar_record_size));
 }
 
 mtar_error mtar_t::find(std::string_view name, mtar_header_t& h)
@@ -332,7 +338,7 @@ mtar_error mtar_t::find(std::string_view name, mtar_header_t& h)
 	}
 	/* Iterate all files until we hit an error or find the file */
 	mtar_header_t header;
-	while ((err = read_header(header)) == mtar_error::SUCCESS)
+	while ((err = peek_header(header)) == mtar_error::SUCCESS)
 	{
 		if (header.name == name)
 		{
@@ -349,7 +355,7 @@ mtar_error mtar_t::find(std::string_view name, mtar_header_t& h)
 	return err;
 }
 
-mtar_error mtar_t::read_header(mtar_header_t& h)
+mtar_error mtar_t::peek_header(mtar_header_t& h)
 {
 	/* Save header position */
 	last_header = read_pos;
@@ -370,6 +376,21 @@ mtar_error mtar_t::read_header(mtar_header_t& h)
 	return raw_to_header(h, rh);
 }
 
+mtar_error mtar_t::read_header(mtar_header_t& h)
+{
+	/* Save header position */
+	last_header = read_pos;
+	/* Read raw header */
+	mtar_raw_header_t rh;
+	mtar_error err = tread(rh.data(), mtar_raw_header_size);
+	if (err != mtar_error::SUCCESS)
+	{
+		return err;
+	}
+	/* Load raw header into header struct and return */
+	return raw_to_header(h, rh);
+}
+
 mtar_error mtar_t::read_data(char* data, size_t size)
 {
 	/* If we have no remaining data then this is the first read, we get the size,
@@ -379,12 +400,6 @@ mtar_error mtar_t::read_data(char* data, size_t size)
 		/* Read header */
 		mtar_header_t h;
 		mtar_error err = read_header(h);
-		if (err != mtar_error::SUCCESS)
-		{
-			return err;
-		}
-		/* Seek past header and init remaining data */
-		err = seek(read_pos + mtar_raw_header_size);
 		if (err != mtar_error::SUCCESS)
 		{
 			return err;
@@ -451,7 +466,7 @@ mtar_error mtar_t::write_data(const char* data, size_t size)
 	/* Write padding if we've written all the data for this file */
 	if (remaining_data == 0)
 	{
-		return write_null_bytes(round_up(write_pos, mtar_raw_header_size) - write_pos);
+		return write_null_bytes(round_up(write_pos, mtar_record_size) - write_pos);
 	}
 	return mtar_error::SUCCESS;
 }
@@ -459,5 +474,5 @@ mtar_error mtar_t::write_data(const char* data, size_t size)
 mtar_error mtar_t::finalize()
 {
 	/* Write two NULL records */
-	return write_null_bytes(mtar_raw_header_size * 2);
+	return write_null_bytes(mtar_record_size * 2);
 }
