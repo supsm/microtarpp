@@ -61,6 +61,16 @@ tar.write_data(str2.data(), str2.size());
 tar.finalize();
 ```
 
+#### Reading/Writing from Memory
+A `vectorstream` class is provided as an **optional** extension in
+`vectorstream.h` as a stream adapter for `std::vector`. The stream owns the
+vector and it will need to be copied (`copy_from`, `vec_copy`), swapped
+(`swap`), or accessed through a view (`view`), individual element access
+(`size`, `operator[]`), or iterators (`begin`, `end`). Note that the view
+and iterators will be invalidated after a reallocation, so they should be used
+before any write is performed to the stream. The stream can be constructed through
+any vector-compatible constructor.
+
 
 ## Error handling
 All functions which return an `mtar_error` will return `mtar_error::SUCCESS`
